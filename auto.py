@@ -10,7 +10,10 @@ import pyfiglet
 # Initialize colorama for colored output
 init(autoreset=True)
 
-CREDENTIALS_FILE = '/data/data/com.termux/files/home/credentials.json'  # Ensure the path is correct
+# Define a specific folder for credentials
+CREDENTIALS_DIR = os.path.expanduser('~/.legitdeals_credentials/')
+os.makedirs(CREDENTIALS_DIR, exist_ok=True)  # Create the directory if it doesn't exist
+CREDENTIALS_FILE = os.path.join(CREDENTIALS_DIR, 'credentials.json')  # Path to the credentials file
 
 # Function to save credentials to a local file
 def save_credentials(credentials):
