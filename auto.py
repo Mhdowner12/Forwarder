@@ -3,7 +3,7 @@ import json
 import os
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.functions.messages import GetHistoryRequest, LeaveChannelRequest
 from colorama import init, Fore
 import pyfiglet
 
@@ -77,6 +77,24 @@ async def auto_sender(client, session_name):
     print(f"Completed all {repeat_count} rounds of forwarding.")
     await client.disconnect()
 
+async def auto_leaver(client, session_name):
+    test_message = "dm @Legitdeals9"  # Test message to send
+    print(f"\nChecking groups for {session_name}...")
+
+    async for dialog in client.iter_dialogs():
+        if dialog.is_group:
+            group = dialog.entity
+            try:
+                await client.send_message(group, test_message)
+                print(Fore.GREEN + f"Message sent to {group.title}, staying in the group.")
+            except Exception as e:
+                print(Fore.RED + f"Failed to send message to {group.title}: {str(e)}")
+                # Leave the group if message couldn't be sent
+                await client(LeaveChannelRequest(group))
+                print(Fore.YELLOW + f"Left group: {group.title}")
+
+    await client.disconnect()
+
 async def main():
     print(Fore.RED + pyfiglet.figlet_format("LEGITDEALS9"))
     print(Fore.GREEN + "Made by @Legitdeals9\n")
@@ -118,9 +136,17 @@ async def main():
         await client.start(phone=phone_number)
         clients.append((client, session_name))
 
-    # Start auto-sender for all logged-in clients
-    for client, session_name in clients:
-        tasks.append(auto_sender(client, session_name))
+    # Ask user to choose between auto sender or auto leaver
+    choice = input("Choose an option:\n1: Auto Sender\n2: Auto Groups Leaver\nEnter your choice (1 or 2): ")
+
+    if choice == '1':
+        for client, session_name in clients:
+            tasks.append(auto_sender(client, session_name))
+    elif choice == '2':
+        for client, session_name in clients:
+            tasks.append(auto_leaver(client, session_name))
+    else:
+        print(Fore.RED + "Invalid choice. Please enter 1 or 2.")
 
     await asyncio.gather(*tasks)
 
