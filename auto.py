@@ -3,7 +3,8 @@ import json
 import os
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
-from telethon.tl.functions.messages import GetHistoryRequest, LeaveChannelRequest
+from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.functions.channels import LeaveChannelRequest  # Correct import
 from colorama import init, Fore
 import pyfiglet
 
