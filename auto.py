@@ -1,80 +1,83 @@
 import asyncio
+import time
 import json
 import os
-import time
-import random
-import string
-from telethon import TelegramClient
+from telethon import TelegramClient, errors
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.functions.channels import LeaveChannelRequest
 from colorama import init, Fore
 import pyfiglet
 
 # Initialize colorama for colored output
 init(autoreset=True)
 
-# Generate a unique folder name for credentials based on timestamp and random string
-def generate_unique_folder():
-    timestamp = int(time.time())
-    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-    return f'legitdeals_credentials_{timestamp}_{random_string}'
+# Define a folder for saving session files
+SESSION_FOLDER = 'sessions'
+CREDENTIALS_FILE = 'credentials.json'
 
-# Define the unique folder for credentials
-CREDENTIALS_DIR = os.path.expanduser(f'~/{generate_unique_folder()}/')
-os.makedirs(CREDENTIALS_DIR, exist_ok=True)  # Create the directory if it doesn't exist
+# Ensure the session folder exists
+if not os.path.exists(SESSION_FOLDER):
+    os.makedirs(SESSION_FOLDER)
 
-# Function to save credentials to a local file in a specific session folder
-def save_credentials(session_name, credentials):
-    session_folder = os.path.join(CREDENTIALS_DIR, session_name)
-    os.makedirs(session_folder, exist_ok=True)  # Create the session folder if it doesn't exist
-    credentials_file = os.path.join(session_folder, 'credentials.json')
-    
-    try:
-        with open(credentials_file, 'w') as f:
-            json.dump(credentials, f)
-    except Exception as e:
-        print(Fore.RED + f"Error saving credentials for {session_name}: {str(e)}")
+# Function to save credentials to a local file
+def save_credentials(credentials):
+    with open(CREDENTIALS_FILE, 'w') as f:
+        json.dump(credentials, f)
 
 # Function to load credentials from the local file
-def load_credentials(session_name):
-    session_folder = os.path.join(CREDENTIALS_DIR, session_name)
-    credentials_file = os.path.join(session_folder, 'credentials.json')
-    
-    if os.path.exists(credentials_file):
-        try:
-            with open(credentials_file, 'r') as f:
-                return json.load(f)
-        except Exception as e:
-            print(Fore.RED + f"Error loading credentials for {session_name}: {str(e)}")
-            return {}
+def load_credentials():
+    if os.path.exists(CREDENTIALS_FILE):
+        with open(CREDENTIALS_FILE, 'r') as f:
+            return json.load(f)
     return {}
 
-async def auto_sender(client, session_name):
+async def login_and_forward(api_id, api_hash, phone_number, session_name):
+    # Initialize the Telegram client for each session in the specified folder
+    session_file = os.path.join(SESSION_FOLDER, session_name)
+    client = TelegramClient(session_file, api_id, api_hash)
+
+    # Connect and start the client
+    await client.start(phone=phone_number)
+
+    # Handle two-factor authentication
+    try:
+        if not await client.is_user_authorized():
+            await client.send_code_request(phone_number)
+            await client.sign_in(phone_number)
+
+    except SessionPasswordNeededError:
+        # Prompt for the two-factor authentication password
+        password = input("Two-factor authentication enabled. Enter your password: ")
+        await client.sign_in(password=password)
+
+    # Fetch the last message from 'Saved Messages'
+    saved_messages_peer = await client.get_input_entity('me')
+    history = await client(GetHistoryRequest(
+        peer=saved_messages_peer,
+        offset_id=0,
+        offset_date=None,
+        add_offset=0,
+        limit=1,  # Get only the last message
+        max_id=0,
+        min_id=0,
+        hash=0
+    ))
+
+    if not history.messages:
+        print("No messages found in 'Saved Messages'")
+        return
+
+    last_message = history.messages[0]
+
+    # Ask how many times to send the message and delay between rounds after login
     repeat_count = int(input(f"How many times do you want to send the message to all groups for {session_name}? "))
     delay_between_rounds = int(input(f"Enter the delay (in seconds) between each round for {session_name}: "))
 
+    # Loop for repeating the forwarding process based on the repeat_count
     for round_num in range(1, repeat_count + 1):
         print(f"\nStarting round {round_num} of forwarding messages to all groups for {session_name}.")
 
-        saved_messages_peer = await client.get_input_entity('me')
-        history = await client(GetHistoryRequest(
-            peer=saved_messages_peer,
-            offset_id=0,
-            offset_date=None,
-            add_offset=0,
-            limit=1,
-            max_id=0,
-            min_id=0,
-            hash=0
-        ))
-
-        if not history.messages:
-            print("No messages found in 'Saved Messages'")
-            return
-
-        last_message = history.messages[0]
-
+        # Get all dialogs (i.e., chats, groups, etc.)
         async for dialog in client.iter_dialogs():
             if dialog.is_group:
                 group = dialog.entity
@@ -83,9 +86,9 @@ async def auto_sender(client, session_name):
                     print(Fore.GREEN + f"Message forwarded to {group.title} using {session_name}")
                 except Exception as e:
                     print(Fore.RED + f"Failed to forward message to {group.title} using {session_name}: {str(e)}")
+
                 await asyncio.sleep(3)
 
-        print(f"Completed round {round_num}. Waiting for the next round (if applicable).")
         if round_num < repeat_count:
             print(f"Delaying for {delay_between_rounds} seconds before the next round.")
             await asyncio.sleep(delay_between_rounds)
@@ -93,72 +96,40 @@ async def auto_sender(client, session_name):
     print(f"Completed all {repeat_count} rounds of forwarding.")
     await client.disconnect()
 
-async def auto_leaver(client, session_name):
-    test_message = "dm @Legitdeals9"  # Test message to send
-    print(f"\nChecking groups for {session_name}...")
-
-    async for dialog in client.iter_dialogs():
-        if dialog.is_group:
-            group = dialog.entity
-            try:
-                await client.send_message(group, test_message)
-                print(Fore.GREEN + f"Message sent to {group.title}, staying in the group.")
-            except Exception as e:
-                print(Fore.RED + f"Failed to send message to {group.title}: {str(e)}")
-                await client(LeaveChannelRequest(group))
-                print(Fore.YELLOW + f"Left group: {group.title}")
-
-    await client.disconnect()
-
 async def main():
+    # Display the banner with pyfiglet
     print(Fore.RED + pyfiglet.figlet_format("LEGITDEALS9"))
     print(Fore.GREEN + "Made by @Legitdeals9\n")
 
+    # Load saved credentials or start with an empty dictionary
+    credentials = load_credentials()
+
     num_sessions = int(input("Enter how many sessions you want to log in: "))
-    
     tasks = []
-    clients = []
 
     for i in range(1, num_sessions + 1):
         session_name = f'session{i}'
-        credentials = load_credentials(session_name)
-        
-        if credentials:
-            api_id = credentials['api_id']
-            api_hash = credentials['api_hash']
-            phone_number = credentials['phone_number']
+
+        if session_name in credentials:
+            api_id = credentials[session_name]['api_id']
+            api_hash = credentials[session_name]['api_hash']
+            phone_number = credentials[session_name]['phone_number']
             print(f"\nUsing saved credentials for {session_name}.")
         else:
+            # Prompt for API credentials for each account
             print(f"\nEnter details for account {i}:")
             api_id = int(input(f"Enter API ID for {session_name}: "))
             api_hash = input(f"Enter API hash for {session_name}: ")
             phone_number = input(f"Enter phone number for {session_name} (with country code): ")
 
-            # Save the new credentials
-            credentials = {
+            credentials[session_name] = {
                 'api_id': api_id,
                 'api_hash': api_hash,
                 'phone_number': phone_number
             }
-            save_credentials(session_name, credentials)
+            save_credentials(credentials)
 
-        client = TelegramClient(session_name, api_id, api_hash)
-
-        # Start the client and add it to the clients list
-        await client.start(phone=phone_number)
-        clients.append((client, session_name))
-
-    # Ask user to choose between auto sender or auto leaver
-    choice = input("Choose an option:\n1: Auto Sender\n2: Auto Groups Leaver\nEnter your choice (1 or 2): ")
-
-    if choice == '1':
-        for client, session_name in clients:
-            tasks.append(auto_sender(client, session_name))
-    elif choice == '2':
-        for client, session_name in clients:
-            tasks.append(auto_leaver(client, session_name))
-    else:
-        print(Fore.RED + "Invalid choice. Please enter 1 or 2.")
+        tasks.append(login_and_forward(api_id, api_hash, phone_number, session_name))
 
     await asyncio.gather(*tasks)
 
