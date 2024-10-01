@@ -1,37 +1,52 @@
 import asyncio
 import json
 import os
+import time
+import random
+import string
 from telethon import TelegramClient
 from telethon.errors import SessionPasswordNeededError
 from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.functions.channels import LeaveChannelRequest  # Correct import
+from telethon.tl.functions.channels import LeaveChannelRequest
 from colorama import init, Fore
 import pyfiglet
 
 # Initialize colorama for colored output
 init(autoreset=True)
 
-# Define a specific folder for credentials
-CREDENTIALS_DIR = os.path.expanduser('~/.legitdeals_credentials/')
-os.makedirs(CREDENTIALS_DIR, exist_ok=True)  # Create the directory if it doesn't exist
-CREDENTIALS_FILE = os.path.join(CREDENTIALS_DIR, 'credentials.json')  # Path to the credentials file
+# Generate a unique folder name for credentials based on timestamp and random string
+def generate_unique_folder():
+    timestamp = int(time.time())
+    random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    return f'legitdeals_credentials_{timestamp}_{random_string}'
 
-# Function to save credentials to a local file
-def save_credentials(credentials):
+# Define the unique folder for credentials
+CREDENTIALS_DIR = os.path.expanduser(f'~/{generate_unique_folder()}/')
+os.makedirs(CREDENTIALS_DIR, exist_ok=True)  # Create the directory if it doesn't exist
+
+# Function to save credentials to a local file in a specific session folder
+def save_credentials(session_name, credentials):
+    session_folder = os.path.join(CREDENTIALS_DIR, session_name)
+    os.makedirs(session_folder, exist_ok=True)  # Create the session folder if it doesn't exist
+    credentials_file = os.path.join(session_folder, 'credentials.json')
+    
     try:
-        with open(CREDENTIALS_FILE, 'w') as f:
+        with open(credentials_file, 'w') as f:
             json.dump(credentials, f)
     except Exception as e:
-        print(Fore.RED + f"Error saving credentials: {str(e)}")
+        print(Fore.RED + f"Error saving credentials for {session_name}: {str(e)}")
 
 # Function to load credentials from the local file
-def load_credentials():
-    if os.path.exists(CREDENTIALS_FILE):
+def load_credentials(session_name):
+    session_folder = os.path.join(CREDENTIALS_DIR, session_name)
+    credentials_file = os.path.join(session_folder, 'credentials.json')
+    
+    if os.path.exists(credentials_file):
         try:
-            with open(CREDENTIALS_FILE, 'r') as f:
+            with open(credentials_file, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(Fore.RED + f"Error loading credentials: {str(e)}")
+            print(Fore.RED + f"Error loading credentials for {session_name}: {str(e)}")
             return {}
     return {}
 
@@ -90,7 +105,6 @@ async def auto_leaver(client, session_name):
                 print(Fore.GREEN + f"Message sent to {group.title}, staying in the group.")
             except Exception as e:
                 print(Fore.RED + f"Failed to send message to {group.title}: {str(e)}")
-                # Leave the group if message couldn't be sent
                 await client(LeaveChannelRequest(group))
                 print(Fore.YELLOW + f"Left group: {group.title}")
 
@@ -100,37 +114,34 @@ async def main():
     print(Fore.RED + pyfiglet.figlet_format("LEGITDEALS9"))
     print(Fore.GREEN + "Made by @Legitdeals9\n")
 
-    credentials = load_credentials()
-    
-    if not credentials:
-        print(Fore.RED + "No saved credentials found. Please enter the details for new sessions.")
-    
     num_sessions = int(input("Enter how many sessions you want to log in: "))
     
     tasks = []
     clients = []
 
     for i in range(1, num_sessions + 1):
-        session_key = f'session{i}'
-        if session_key in credentials:
-            api_id = credentials[session_key]['api_id']
-            api_hash = credentials[session_key]['api_hash']
-            phone_number = credentials[session_key]['phone_number']
-            print(f"\nUsing saved credentials for session {i}.")
+        session_name = f'session{i}'
+        credentials = load_credentials(session_name)
+        
+        if credentials:
+            api_id = credentials['api_id']
+            api_hash = credentials['api_hash']
+            phone_number = credentials['phone_number']
+            print(f"\nUsing saved credentials for {session_name}.")
         else:
             print(f"\nEnter details for account {i}:")
-            api_id = int(input(f"Enter API ID for session {i}: "))
-            api_hash = input(f"Enter API hash for session {i}: ")
-            phone_number = input(f"Enter phone number for session {i} (with country code): ")
+            api_id = int(input(f"Enter API ID for {session_name}: "))
+            api_hash = input(f"Enter API hash for {session_name}: ")
+            phone_number = input(f"Enter phone number for {session_name} (with country code): ")
 
-            credentials[session_key] = {
+            # Save the new credentials
+            credentials = {
                 'api_id': api_id,
                 'api_hash': api_hash,
                 'phone_number': phone_number
             }
-            save_credentials(credentials)
+            save_credentials(session_name, credentials)
 
-        session_name = f'session{i}'
         client = TelegramClient(session_name, api_id, api_hash)
 
         # Start the client and add it to the clients list
